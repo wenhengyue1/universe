@@ -4178,6 +4178,22 @@ async function boot(){
   setInterval(()=>{keys.forEach(k=>idbSet(k,S[k]).catch(()=>{}));},300000);
 }
 
+// --- 增加：监听通知点击与网址参数 ---
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data && event.data.action === 'openChat') {
+      go('chat'); // 如果应用在后台，点击通知直接切到聊天页
+    }
+  });
+}
+
+// 如果是点击通知冷启动（网页原本没开）
+if (location.search.includes('action=chat')) {
+  history.replaceState(null, '', location.pathname);
+  setTimeout(() => go('chat'), 100); // 延迟一点点等渲染完成
+}
+// ---------------------------------
+
 boot().catch(e=>{
   console.error(e);
   document.body.innerHTML='<div style="padding:40px;font-size:14px;line-height:2">'+
