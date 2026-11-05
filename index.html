@@ -1165,10 +1165,11 @@ function go(id,fromBack){
   if(!same && id!=='desktop' && !fromBack){history.pushState({guard:1},'');}
   if(id==='desktop') renderDesktop();
   if(id==='chat'){
-    S.unread = S.unread || {chat:0,letter:0};
-    S.unread.chat = 0; save('unread');
-    renderChat(); applyTheme();
-  }
+  S.unread = S.unread || {chat:0,letter:0};
+  S.unread.chat = 0; save('unread');
+  chatRenderLimit = 10; // <--- 新增这行：每次进聊天，先只显示最近 10 条
+  renderChat(); applyTheme();
+}
   if(id==='seek') renderSeek();
   if(id==='letter'){
     S.unread = S.unread || {chat:0,letter:0};
@@ -1686,17 +1687,47 @@ function setupDesktopInteractions(){
 /* 聊天 */
 let pendingQuote = null, multiMode = false, multiSel = new Set();
 
-function renderChat(){
+// 全局变量：记录当前显示多少条消息
+let chatRenderLimit = 10;
+
+function renderChat(keepScroll = false){
   const cfg=S.chatCfg.ui;
   $('#chatTaName').textContent = cfg.nameTa||'Ta';
   const list=$('#chatList');
   list.classList.toggle('multi', multiMode);
-  const msgs=S.chat.msgs;
-  if(!msgs.length){list.innerHTML=`<div class="empty">还没有对话，说点什么吧</div>`;updateReplyStatus();return;}
+  const allMsgs=S.chat.msgs;
+  
+  if(!allMsgs.length){
+    list.innerHTML=`<div class="empty">还没有对话，说点什么吧</div>`;
+    updateReplyStatus();
+    return;
+  }
+  
+  // 只取最后的 chatRenderLimit 条消息
+  const startIdx = Math.max(0, allMsgs.length - chatRenderLimit);
+  const msgs = allMsgs.slice(startIdx);
+  
   let html='';
+  // 如果还有更早的消息，在顶部显示一个提示
+  if (startIdx > 0) {
+    html += `<div style="text-align:center;padding:10px;font-size:11.5px;color:var(--m-text-soft);opacity:0.8;">—— 上滑查看更早的消息 ——</div>`;
+  }
+  
   for(const m of msgs) html+=msgHTML(m);
+  
+  // 渲染前记录一下原来的滚动高度和位置
+  const prevHeight = list.scrollHeight;
+  const prevTop = list.scrollTop;
+  
   list.innerHTML=html;
-  list.scrollTop=list.scrollHeight;
+  
+  // 如果是触发加载更多（保持位置），就恢复原来的视觉位置；否则滚到底部
+  if (keepScroll) {
+    list.scrollTop = list.scrollHeight - (prevHeight - prevTop);
+  } else {
+    list.scrollTop = list.scrollHeight;
+  }
+  
   updateReplyStatus();
 }
 function msgHTML(m){
@@ -1930,10 +1961,12 @@ function doProactive(){
   scheduleProactive();
 }
 
-$('#chatInput').addEventListener('keydown',e=>{
-  if(e.key==='Enter' && !e.isComposing){
-    e.preventDefault();
-    sendText(e.target.value);
+$('#chatList').addEventListener('scroll', function() {
+  // 如果滑动到最顶部，且还有更多的历史消息没显示
+  if (this.scrollTop === 0 && S.chat.msgs.length > chatRenderLimit) {
+    // 每次多加载 10 条
+    chatRenderLimit += 10;
+    renderChat(true); // true 代表加载时保持屏幕当前内容不动
   }
 });
 $('#chatBack').innerHTML=SVG.back;$('#chatBack').onclick=()=>history.back();
