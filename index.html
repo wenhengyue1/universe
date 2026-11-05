@@ -1167,7 +1167,7 @@ function go(id,fromBack){
   if(id==='chat'){
   S.unread = S.unread || {chat:0,letter:0};
   S.unread.chat = 0; save('unread');
-  chatRenderLimit = 10; // <--- 新增这行：每次进聊天，先只显示最近 10 条
+  chatRenderLimit = 15; // <--- 新增这行：每次进聊天，先只显示最近 15 条
   renderChat(); applyTheme();
 }
   if(id==='seek') renderSeek();
@@ -1688,7 +1688,7 @@ function setupDesktopInteractions(){
 let pendingQuote = null, multiMode = false, multiSel = new Set();
 
 // 全局变量：记录当前显示多少条消息
-let chatRenderLimit = 10;
+let chatRenderLimit = 15;
 
 function renderChat(keepScroll = false){
   const cfg=S.chatCfg.ui;
@@ -1964,9 +1964,15 @@ function doProactive(){
 $('#chatList').addEventListener('scroll', function() {
   // 如果滑动到最顶部，且还有更多的历史消息没显示
   if (this.scrollTop === 0 && S.chat.msgs.length > chatRenderLimit) {
-    // 每次多加载 10 条
-    chatRenderLimit += 10;
+    // 每次多加载 15 条
+    chatRenderLimit += 15;
     renderChat(true); // true 代表加载时保持屏幕当前内容不动
+  }
+});
+$('#chatInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter' && !e.isComposing){
+    e.preventDefault();
+    sendText(e.target.value);
   }
 });
 $('#chatBack').innerHTML=SVG.back;$('#chatBack').onclick=()=>history.back();
