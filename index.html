@@ -673,6 +673,16 @@ body.hide-dock .page:not(.sub){padding-bottom:0}
   .book-cell{font-size:10px}
 }
 </style>
+<link rel="manifest" href="manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(err => {
+        console.error('Service Worker 注册失败', err);
+      });
+    });
+  }
+</script>
 </head>
 <body>
 <div id="phone">
