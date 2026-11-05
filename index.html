@@ -1734,20 +1734,49 @@ function msgHTML(m){
 }
 function pushMsg(m){
   m.id=m.id||uid(); m.ts=m.ts||now();
-  S.chat.msgs.push(m);save('chat');renderChat();
+  S.chat.msgs.push(m);save('chat');
+  
+  // === 优化：只追加新消息，且智能判断滚动位置 ===
+  const list = $('#chatList');
+  if(!multiMode && list.querySelector('.msg')){
+    const empty = list.querySelector('.empty');
+    if(empty) empty.remove();
+
+    // 1. 在插入之前，先检查你当前距离底部有多远
+    const isNearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+
+    // 2. 插入新消息
+    const temp = document.createElement('div');
+    temp.innerHTML = msgHTML(m);
+    list.appendChild(temp.firstElementChild);
+
+    // 3. 如果你本来就在底部，或者这条消息是你自己发的，才自动滚到底部
+    if(isNearBottom || m.side === 'me'){
+      list.scrollTop = list.scrollHeight; 
+    }
+    // 如果你正在翻看历史记录（不在底部），新消息会静默添加到最下面，你的屏幕不会跳动！
+  } else {
+    // 否则（比如刚清空聊天、多选模式下），才重新渲染整个列表
+    renderChat();
+  }
+  // =====================================
+
   if(m.side==='ta'){
-  playSound('reply');
-  if(!$('#p-chat').classList.contains('active')){
-    S.unread = S.unread || {chat:0,letter:0};
-    S.unread.chat = (S.unread.chat||0)+1;
-    save('unread');
-    renderDesktop();
+    playSound('reply');
+    if(!$('#p-chat').classList.contains('active')){
+      S.unread = S.unread || {chat:0,letter:0};
+      S.unread.chat = (S.unread.chat||0)+1;
+      save('unread');
+      renderDesktop();
+    }
+    if(document.hidden){
+      const name = S.chatCfg.ui.nameTa || 'Ta';
+      const body = m.type==='text' ? m.text : (m.type==='img'?'[图片]':'[表情]');
+      notify(name, body);
+    }
   }
-  if(document.hidden){
-    const name = S.chatCfg.ui.nameTa || 'Ta';
-    const body = m.type==='text' ? m.text : (m.type==='img'?'[图片]':'[表情]');
-    notify(name, body);
-  }
+  updateReplyStatus();
+}
 }
   updateReplyStatus();
 }
@@ -1904,7 +1933,12 @@ function doProactive(){
   scheduleProactive();
 }
 
-$('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendText(e.target.value);}});
+$('#chatInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter' && !e.isComposing){
+    e.preventDefault();
+    sendText(e.target.value);
+  }
+});
 $('#chatBack').innerHTML=SVG.back;$('#chatBack').onclick=()=>history.back();
 $('#chatSetBtn').innerHTML=SVG.gear;$('#chatSetBtn').onclick=openChatSettings;
 $('#btnInteract').innerHTML=SVG.plus;$('#btnEmoji').innerHTML=SVG.smile;
