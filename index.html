@@ -2660,9 +2660,20 @@ function pickImg(cb){
 /* 寻觅 */
 function renderSeek(){
   const s=S.seek;
-  const loc = s.loc.length?pick(s.loc):' ';
-  const act = s.act.length?pick(s.act):' ';
-  const lnk = s.link.length?pick(s.link):' ';
+  
+  // 如果没有当前状态，先生成一次并保存
+  if(!s.current){
+    s.current = {
+      loc: s.loc.length ? pick(s.loc) : ' ',
+      act: s.act.length ? pick(s.act) : ' ',
+      lnk: s.link.length ? pick(s.link) : ' '
+    };
+    save('seek');
+  }
+  
+  // 读取当前状态
+  const { loc, act, lnk } = s.current;
+
   $('#seekBody').innerHTML=`
     <div class="card"><h3>此刻的Ta</h3>
       <div class="row"><span>位置</span><b>${esc(loc)}</b></div>
@@ -2678,12 +2689,25 @@ function renderSeek(){
           <div class="li-sub">${fmtDate(l.ts)}</div></div></div>`).join(''):
         '<div class="empty">暂无记录</div>'}</div>
     </div>`;
+    
   $('#seekRefresh').onclick=()=>{
-    const t=`${loc} · ${act} · ${lnk}`;
+    // 点击刷新时，生成新的内容
+    const newLoc = s.loc.length ? pick(s.loc) : ' ';
+    const newAct = s.act.length ? pick(s.act) : ' ';
+    const newLnk = s.link.length ? pick(s.link) : ' ';
+    
+    s.current = { loc: newLoc, act: newAct, lnk: newLnk };
+    
+    // 存入日志
+    const t=`${newLoc} · ${newAct} · ${newLnk}`;
     S.seek.logs.push({ts:now(),text:t});
     if(S.seek.logs.length>200) S.seek.logs=S.seek.logs.slice(-200);
-    save('seek');renderSeek();toast('已刷新');
+    
+    save('seek');
+    renderSeek();
+    toast('已刷新');
   };
+  
   $('#seekClear').onclick=()=>confirmBox('清空全部寻踪记录？',()=>{S.seek.logs=[];save('seek');renderSeek();},'清空');
 }
 
@@ -2786,11 +2810,36 @@ function taLetterContent(){
   const n=randInt(Math.max(1,lc.minCards),Math.max(1,lc.maxCards));
   const pool=activeCards();
   let parts=[];
+  
   for(let i=0;i<n;i++){
-    if(pool.length) parts.push(pick(pool).t);
-    else parts.push(pick(['今天想到你了。','你在做什么呢？','要好好的。','我一直都在。']));
+    if(pool.length) {
+      // 去掉字卡末尾自带的一些标点，防止出现“。，”这种连续标点
+      let text = pick(pool).t.replace(/[，。！？；、…~～\s]+$/, '');
+      parts.push(text);
+    } else {
+      // 兜底默认句子
+      parts.push(pick(['今天想到你了', '你在做什么呢', '要好好的', '我一直都在']));
+    }
   }
-  return parts.join('\n');
+
+  // 预设中间使用的随机标点符号
+  const midPuncts = ['，', '。', '！', '？', '；', '…', '～', '，', '。', ''];
+  // 预设结尾使用的标点符号
+  const endPuncts = ['。', '！', '～', '…'];
+
+  let result = '';
+  for(let i = 0; i < parts.length; i++){
+    result += parts[i];
+    if(i < parts.length - 1){
+      // 如果不是最后一句，随机加一个中间标点
+      result += pick(midPuncts);
+    } else {
+      // 如果是最后一句，加一个结尾标点
+      result += pick(endPuncts);
+    }
+  }
+  
+  return result;
 }
 
 /* 与你 */
@@ -3027,13 +3076,22 @@ function cardsPanelHTML(){
   let list=S.cards.list;
   if(q) list=list.filter(c=>c.t.includes(q));
   if(cardFilter!=='all') list=list.filter(c=>c.g===cardFilter);
-  const chips=[`<div class="chip ${cardFilter==='all'?'on':''}" data-gf="all">全部</div>`]
+  
+  // 计算全部分类的数量
+  const totalCount = S.cards.list.length;
+
+  // 在“全部”和分组名称旁边加上数量 (样式设置为半透明小字)
+  const chips=[`<div class="chip ${cardFilter==='all'?'on':''}" data-gf="all">全部 <span style="font-size:11px;opacity:.75;margin-left:2px">(${totalCount})</span></div>`]
     .concat(groups.map(g=>{
       const closed=S.cards.closed.includes(g);
+      // 计算当前分组的数量
+      const groupCount = S.cards.list.filter(c=>c.g===g).length;
       return `<div class="chip ${cardFilter===g?'on':''}" data-gf="${esc(g)}">
-        ${esc(g)}<span class="chip-x" data-gtoggle="${esc(g)}"
+        ${esc(g)} <span style="font-size:11px;opacity:.75;margin-left:2px">(${groupCount})</span>
+        <span class="chip-x" data-gtoggle="${esc(g)}"
           style="font-size:10px;opacity:${closed?1:.4}">${closed?'关':'开'}</span></div>`;
     })).join('');
+    
   return `
   <div class="card"><h3>管理</h3>
     <div class="btnrow">
@@ -3055,7 +3113,11 @@ function cardsPanelHTML(){
   <div>${list.length?list.slice().reverse().map(c=>
     `<div class="list-item"><div class="li-main">${esc(c.t)}
       <div class="li-sub">${esc(c.g)}</div></div>
-      <button class="chip-x" data-cdel="${c.id}">✕</button></div>`).join(''):
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="chip-x" data-cedit="${c.id}" style="font-size:14px;color:var(--m-accent);opacity:0.8">✎</button>
+        <button class="chip-x" data-cdel="${c.id}">✕</button>
+      </div>
+    </div>`).join(''):
     '<div class="empty">暂无字卡</div>'}</div>`;
 }
 function bindCardPanel(p){
@@ -3076,6 +3138,29 @@ function bindCardPanel(p){
     p.querySelectorAll('[data-cdel]').forEach(b=>{
       b.onclick=()=>{S.cards.list=S.cards.list.filter(x=>x.id!==b.dataset.cdel);save('cards');renderCardPanel();};
     });
+    p.querySelectorAll('[data-cedit]').forEach(b=>{
+  b.onclick=()=>{
+    const id = b.dataset.cedit;
+    const card = S.cards.list.find(x=>x.id===id);
+    if(!card) return;
+    const ov = showModal(`<div class="m-head"><h3>修改字卡</h3><button data-close>✕</button></div>
+      <div class="m-body">
+        <label class="field"><span>字卡内容</span>
+          <textarea id="editCardText" rows="4" style="width:100%;box-sizing:border-box">${esc(card.t)}</textarea></label>
+      </div>
+      <div class="m-foot"><button class="btn" data-close>取消</button>
+        <button class="btn primary" id="editCardSave">保存</button></div>`);
+    ov.querySelector('#editCardSave').onclick = () => {
+      const v = ov.querySelector('#editCardText').value.trim();
+      if(!v){ toast('内容不能为空'); return; }
+      card.t = v;
+      save('cards');
+      renderCardPanel();
+      ov.close();
+      toast('字卡已修改');
+    };
+  };
+});
     $q('#cAdd').onclick=()=>{
       const v=$q('#cNew').value;
       const lines=v.split('\n').map(s=>s.trim()).filter(Boolean);
@@ -3096,16 +3181,73 @@ function bindCardPanel(p){
     $q('#cClearAll').onclick=()=>confirmBox('确定清除全部字卡？此操作不可恢复。',()=>{S.cards.list=[];save('cards');renderCardPanel();},'清除');
   }
   if(cardPanel==='seek'){
-    const add=(key)=>{
-      const inp=p.querySelector(`[data-seekin="${key}"]`);
-      const v=inp.value.trim();if(!v)return;
-      S.seek[key].push(v);save('seek');renderCardPanel();
+  // 绑定折叠/展开
+  p.querySelectorAll('[data-seektoggle]').forEach(h=>{
+    h.onclick = () => {
+      const key = h.dataset.seektoggle;
+      _seekCollapsed[key] = !_seekCollapsed[key];
+      renderCardPanel();
     };
-    p.querySelectorAll('[data-seekadd]').forEach(b=>{b.onclick=()=>add(b.dataset.seekadd);});
-    p.querySelectorAll('[data-seekdel]').forEach(b=>{
-      b.onclick=()=>{const [k,i]=b.dataset.seekdel.split(':');S.seek[k].splice(+i,1);save('seek');renderCardPanel();};
+  });
+
+  const add=(key)=>{
+    const inp=p.querySelector(`[data-seekin="${key}"]`);
+    const v=inp.value.trim();if(!v)return;
+    S.seek[key].push(v);
+    save('seek');
+    // 添加后不改变 _seekCollapsed 状态，所以它还是折叠的
+    renderCardPanel();
+  };
+  
+  // 支持回车键快速添加
+  p.querySelectorAll('[data-seekin]').forEach(inp => {
+    inp.addEventListener('keydown', e => {
+      if(e.key === 'Enter') {
+        e.preventDefault();
+        add(inp.dataset.seekin);
+      }
     });
-  }
+  });
+
+  p.querySelectorAll('[data-seekadd]').forEach(b=>{b.onclick=()=>add(b.dataset.seekadd);});
+  
+  // 删除按钮
+  p.querySelectorAll('[data-seekdel]').forEach(b=>{
+    b.onclick=()=>{
+      const [k,i]=b.dataset.seekdel.split(':');
+      S.seek[k].splice(+i,1);
+      save('seek');
+      renderCardPanel();
+    };
+  });
+
+  // 修改按钮
+  p.querySelectorAll('[data-seekedit]').forEach(b=>{
+    b.onclick=()=>{
+      const [k, idxStr] = b.dataset.seekedit.split(':');
+      const i = parseInt(idxStr);
+      const oldVal = S.seek[k][i];
+      
+      const ov = showModal(`<div class="m-head"><h3>修改内容</h3><button data-close>✕</button></div>
+        <div class="m-body">
+          <label class="field"><span>内容</span>
+            <input id="editSeekText" type="text" value="${esc(oldVal)}"></label>
+        </div>
+        <div class="m-foot"><button class="btn" data-close>取消</button>
+          <button class="btn primary" id="editSeekSave">保存</button></div>`);
+          
+      ov.querySelector('#editSeekSave').onclick = () => {
+        const v = ov.querySelector('#editSeekText').value.trim();
+        if(!v){ toast('内容不能为空'); return; }
+        S.seek[k][i] = v;
+        save('seek');
+        renderCardPanel();
+        ov.close();
+        toast('已修改');
+      };
+    };
+  });
+}
   if(cardPanel==='emoji'){
     p.querySelectorAll('[data-etab]').forEach(t=>{t.onclick=()=>{ emojiPanelTab = t.dataset.etab; renderCardPanel(); };});
     const tab = emojiPanelTab || 'mine';
@@ -3334,18 +3476,40 @@ function importEmoji(which){
   };
   inp.click();
 }
+// 默认状态改为折叠 (true)
+let _seekCollapsed = { loc: true, act: true, link: true };
+
 function seekPanelHTML(){
   const sec=(title,key,ph)=>{
-    return `<div class="card"><h3>${title}</h3>
-      <div style="display:flex;gap:8px;margin-bottom:10px">
+    const isCollapsed = _seekCollapsed[key];
+    return `<div class="card">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span>${title}</span>
+        <span style="font-size:12px;opacity:.7;font-weight:normal;cursor:pointer;padding:4px 8px;background:rgba(255,255,255,.4);border-radius:8px" data-seektoggle="${key}">
+          ${S.seek[key].length}项 ${isCollapsed?'展开 ▼':'收起 ▲'}
+        </span>
+      </h3>
+      
+      <!-- 输入框和添加按钮，始终显示 -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
         <input data-seekin="${key}" placeholder="${ph}"
           style="flex:1;border:none;outline:none;background:rgba(255,255,255,.55);border-radius:12px;padding:10px;
           font-size:14px;box-shadow:var(--neo-inset);color:var(--m-text)">
         <button class="btn sm primary" data-seekadd="${key}">添加</button>
       </div>
-      ${S.seek[key].map((v,i)=>
-        `<div class="list-item"><div class="li-main">${esc(v)}</div>
-          <button class="chip-x" data-seekdel="${key}:${i}">✕</button></div>`).join('')}
+
+      <!-- 只有列表区域参与折叠 -->
+      <div class="seek-sec-list" style="${isCollapsed?'display:none':''}">
+        ${S.seek[key].length ? S.seek[key].map((v,i)=>
+          `<div class="list-item" style="margin-bottom:8px;">
+            <div class="li-main">${esc(v)}</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="chip-x" data-seekedit="${key}:${i}" style="font-size:14px;color:var(--m-accent);opacity:0.8">✎</button>
+              <button class="chip-x" data-seekdel="${key}:${i}">✕</button>
+            </div>
+          </div>`).join('') 
+        : '<div class="empty" style="padding:10px 0;font-size:12px">暂无内容</div>'}
+      </div>
     </div>`;
   };
   return sec('位置','loc','例：图书馆三楼')+sec('正在做什么','act','例：在听你推荐的歌')+sec('与你的链接','link','例：心跳同频');
@@ -3902,19 +4066,27 @@ function doLetterReply(){
     renderDesktop();
   }
 }
-function notify(title,body){
-  if(!S.sysCfg.alive) return;
-  if(!('Notification' in window)) return;
-  if(Notification.permission!=='granted') return;
-  try{
-    const n = new Notification(title,{
-      body,
-      tag:'nijiyuzhou-msg',
-      renotify:true
+function notify(title, body) {
+  if (!S.sysCfg.alive) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  
+  // 优先使用 Service Worker 发送通知
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then(registration => {
+      registration.showNotification(title, {
+        body: body,
+        tag: 'nijiyuzhou-msg',
+        renotify: true,
+        icon: 'icon-192.png' // 确保图标路径正确
+      });
+    }).catch(() => {
+      // 降级方案：如果 SW 失败，再尝试 old 方式
+      try { new Notification(title, { body }); } catch (e) {}
     });
-    n.onclick = ()=>{ window.focus(); n.close(); };
-    setTimeout(()=>{ try{n.close();}catch(e){} }, 6000);
-  }catch(e){}
+  } else {
+    // 降级方案
+    try { new Notification(title, { body }); } catch (e) {}
+  }
 }
 function tick(){
   updateClock();
