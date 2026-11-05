@@ -1777,9 +1777,6 @@ function pushMsg(m){
   }
   updateReplyStatus();
 }
-}
-  updateReplyStatus();
-}
 function updateReplyStatus(){
   const el=$('#chatStatus');const txt=$('#chatStatusText');
   if(!el||!txt) return;
@@ -4180,11 +4177,6 @@ async function boot(){
   }
   S.sysCfg.theme.type = 'glass';
 
-  // 每日一签跨日自动重置
-  if(S.fortune.lastDrawDate && S.fortune.lastDrawDate !== getTodayKey()){
-    // 新的一天，currentDraw 保留（用于查看），但 _drawStage 会在 renderFortune 里重置
-  }
-
   applyFont();
   applySystemTheme();
   applyTheme();
@@ -4196,7 +4188,7 @@ async function boot(){
   bindMiniDrag();
   tick();
   setInterval(tick,1000);
-  // 每分钟检查一次跨日：如果到了 0 点，且每日一签开启，重绘 fortune 页面
+  
   setInterval(()=>{
     if(!$('#p-fortune').classList.contains('active')) return;
     if(S.fortune.lastDrawDate && S.fortune.lastDrawDate !== getTodayKey()){
@@ -4210,23 +4202,23 @@ async function boot(){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden) tick();});
   window.addEventListener('focus',()=>tick());
   setInterval(()=>{keys.forEach(k=>idbSet(k,S[k]).catch(()=>{}));},300000);
-}
 
-// --- 增加：监听通知点击与网址参数 ---
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', event => {
-    if (event.data && event.data.action === 'openChat') {
-      go('chat'); // 如果应用在后台，点击通知直接切到聊天页
-    }
-  });
+  // === 监听通知点击与网址参数 (移到这里，确保数据已加载) ===
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+      if (event.data && event.data.action === 'openChat') {
+        go('chat'); // 如果应用在后台，点击通知直接切到聊天页
+      }
+    });
+  }
+  
+  // 如果是点击通知冷启动（网页原本没开）
+  if (location.search.includes('action=chat')) {
+    history.replaceState(null, '', location.pathname);
+    setTimeout(() => go('chat'), 100); // 延迟一点点等渲染完成
+  }
+  // =====================================
 }
-
-// 如果是点击通知冷启动（网页原本没开）
-if (location.search.includes('action=chat')) {
-  history.replaceState(null, '', location.pathname);
-  setTimeout(() => go('chat'), 100); // 延迟一点点等渲染完成
-}
-// ---------------------------------
 
 boot().catch(e=>{
   console.error(e);
