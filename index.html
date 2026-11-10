@@ -1903,14 +1903,16 @@ function scheduleReply(){
     S.timers.queue.push({t:now()+randInt(1200,3000),kind:'readNoReply'});save('timers');updateReplyStatus();return;
   }
   const n=randInt(r.minCount,r.maxCount);
-  let t=now()+randInt(r.minDelay,r.maxDelay)*1000;
+  let t=now()+randInt(r.minDelay,r.maxDelay)*1000; // 第一条消息的延迟
   for(let i=0;i<n;i++){
     let type='text';
     if(Math.random()*100 < r.emoji){const src=pickEmojiSrc();if(src) type='emoji';}
     const task={t,kind:'reply',payload:{type}};
     if(i===0 && Math.random()*100 < r.quote) task.payload.quote=true;
     S.timers.queue.push(task);
-    t+=randInt(Math.max(1,r.minDelay),Math.max(2,r.maxDelay))*600;
+    
+    // 优化：如果有多条消息，每条间隔 800~2000 毫秒（0.8秒~2秒），连发更自然
+    if (i < n - 1) t += randInt(800, 2000); 
   }
   save('timers');updateReplyStatus();
 }
@@ -1935,8 +1937,21 @@ function doReply(payload){
 }
 function doRecall(mid){
   const m=S.chat.msgs.find(x=>x.id===mid);if(!m) return;
-  m.recalled=true;m.recalledContent = m.type==='text'?m.text:(m.type==='img'?'[图片]':'[表情]');
-  save('chat');renderChat();
+  m.recalled=true;
+  m.recalledContent = m.type==='text'?m.text:(m.type==='img'?'[图片]':'[表情]');
+  save('chat');
+  
+  // === 优化：只替换这一条消息的 DOM，不重绘整个聊天列表 ===
+  const msgEl = document.querySelector(`[data-mid="${mid}"]`);
+  if (msgEl) {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = msgHTML(m);
+    msgEl.parentNode.replaceChild(tempDiv.firstElementChild, msgEl);
+  } else {
+    renderChat();
+  }
+  // ========================================================
+
   if(Math.random()*100 < S.chatCfg.reply.resend){
     S.timers.queue.push({t:now()+randInt(1500,4000),kind:'reply',payload:{type:'text'}});save('timers');
   }
