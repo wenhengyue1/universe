@@ -1745,7 +1745,20 @@ function msgHTML(m){
       ${esc(cfg.nameTa)}撤回了一条消息<em>点击查看</em></div></div>`;
   }
   let inner='';
-  if(m.quote) inner+=`<div class="quote">${esc(m.quote)}</div>`;
+  if(m.quote) {
+  let qHtml = '';
+  // 兼容以前没有 src 的纯字符串老数据
+  if (typeof m.quote === 'string') {
+    qHtml = esc(m.quote);
+  } else {
+    qHtml = esc(m.quote.text || '');
+    if (m.quote.src) {
+      // 气泡内显示的缩略图
+      qHtml = `<img src="${m.quote.src}" style="height:24px;width:24px;object-fit:contain;vertical-align:middle;margin-right:6px;border-radius:4px;">` + qHtml;
+    }
+  }
+  inner += `<div class="quote" style="display:flex;align-items:center;">${qHtml}</div>`;
+}
   if(m.type==='img') inner+=`<img class="msg-img" src="${m.src}">`;
   else if(m.type==='emoji') inner+=`<img class="msg-emoji" src="${m.src}">`;
   else inner+=esc(m.text||'');
@@ -1820,15 +1833,39 @@ function updateReplyStatus(){
     el.classList.add('show');
   }else{el.classList.remove('show');}
 }
-function setQuote(m){pendingQuote = {mid:m.id, text: (m.type==='text'?m.text:(m.type==='img'?'[图片]':'[表情]'))};renderQuoteBar();$('#chatInput')?.focus();}
+function setQuote(m){
+  const quoteObj = { text: m.type==='text'?m.text:(m.type==='img'?'[图片]':'[表情]') };
+  if (m.type === 'img' || m.type === 'emoji') quoteObj.src = m.src;
+  pendingQuote = { mid: m.id, ...quoteObj };
+  renderQuoteBar();
+  $('#chatInput')?.focus();
+}
 function clearQuote(){pendingQuote=null;renderQuoteBar();}
 function renderQuoteBar(){
   const bar=$('#quoteBar');const txt=$('#quoteBarText');
   if(!bar) return;
-  if(pendingQuote){bar.style.display='flex';if(txt) txt.textContent = pendingQuote.text;}
-  else{bar.style.display='none';if(txt) txt.textContent='';}
+  if(pendingQuote){
+    bar.style.display='flex';
+    if(txt) {
+      let content = esc(pendingQuote.text);
+      if(pendingQuote.src){
+        // 在输入框上方显示小小的缩略图
+        content = `<img src="${pendingQuote.src}" style="height:18px;width:18px;object-fit:contain;vertical-align:middle;margin-right:4px;border-radius:4px;">` + content;
+      }
+      txt.innerHTML = content;
+    }
+  } else {
+    bar.style.display='none';
+    if(txt) txt.innerHTML='';
+  }
 }
-function attachQuoteTo(m){if(pendingQuote){m.quote = pendingQuote.text;clearQuote();}return m;}
+function attachQuoteTo(m){
+  if(pendingQuote){
+    m.quote = pendingQuote; // 直接存整个对象，包含文本和src
+    clearQuote();
+  }
+  return m;
+}
 
 let actionCardEl=null;
 function showMsgAction(msgEl, m){
@@ -1927,9 +1964,12 @@ function doReply(payload){
   if(payload.type==='emoji'){const src=pickEmojiSrc();if(src){pushMsg({side:'ta',type:'emoji',src});return;}}
   const text=pickCardText();const m={side:'ta',type:'text',text};
   if(payload.quote){
-    const last=S.chat.msgs.filter(x=>x.side==='me').pop();
-    if(last) m.quote = last.type==='text'?last.text:(last.type==='img'?'[图片]':'[表情]');
+  const last=S.chat.msgs.filter(x=>x.side==='me').pop();
+  if(last) {
+    m.quote = { text: last.type==='text'?last.text:(last.type==='img'?'[图片]':'[表情]') };
+    if(last.type === 'img' || last.type === 'emoji') m.quote.src = last.src;
   }
+}
   pushMsg(m);
   if(Math.random()*100 < S.chatCfg.reply.recall){
     S.timers.queue.push({t:now()+randInt(2500,6000),kind:'recall',payload:{mid:m.id}});save('timers');
@@ -2125,12 +2165,25 @@ $('#btnBatch').onclick=()=>{
     </div>`);
   const list=ov.querySelector('#batchList');const queue=[];
   const render=()=>{
-    list.innerHTML = queue.length?queue.map((q,i)=>
-      `<div class="list-item"><div class="li-main">${q.type==='text'?esc(q.text):'[图片]'}</div>
-        <button class="chip-x" data-rm="${i}">✕</button></div>`).join('')
-      :`<div class="empty">队列为空</div>`;
-    list.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{queue.splice(+b.dataset.rm,1);render();});
-  };
+  list.innerHTML = queue.length ? queue.map((q,i)=>{
+    let content = '';
+    if (q.type === 'text') {
+      content = esc(q.text);
+    } else if (q.type === 'img') {
+      // 图片：限制最大高度，避免撑破列表
+      content = `<img src="${q.src}" style="max-height:48px;max-width:120px;object-fit:contain;border-radius:8px;">`;
+    } else if (q.type === 'emoji') {
+      // 表情包：固定 48x48 大小
+      content = `<img src="${q.src}" style="height:48px;width:48px;object-fit:contain;">`;
+    }
+    return `<div class="list-item">
+      <div class="li-main" style="display:flex;align-items:center;min-height:48px;">${content}</div>
+      <button class="chip-x" data-rm="${i}">✕</button>
+    </div>`;
+  }).join('') : `<div class="empty">队列为空</div>`;
+  
+  list.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{queue.splice(+b.dataset.rm,1);render();});
+};
   render();
   const cont=()=>{
     const v=ov.querySelector('#batchInput').value;
@@ -2141,9 +2194,25 @@ $('#btnBatch').onclick=()=>{
   ov.querySelector('#bCont').onclick=cont;
   ov.querySelector('#batchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();cont();}});
   ov.querySelector('#bEmoji').onclick=()=>{
-    const e=emojiPick('mine');if(!e){toast('暂无我的表情包');return;}
-    queue.push({type:'emoji',src:e.src});render();
-  };
+  const list = emojiList('mine');
+  if(!list.length){toast('还没有我的表情包，去「字卡库 - 表情包」导入吧');return;}
+  
+  // 弹出选择面板
+  const ov2 = showModal(`<div class="m-head"><h3>选择表情包</h3><button data-close>✕</button></div>
+    <div class="m-body"><div class="emoji-grid" id="emojiPickBatch"></div></div>`);
+    
+  ov2.querySelector('#emojiPickBatch').innerHTML=list.map(e=>`<img src="${e.src}" data-eid="${e.id}">`).join('');
+  ov2.querySelectorAll('[data-eid]').forEach(img=>{
+    img.onclick=()=>{
+      const e=list.find(x=>x.id===img.dataset.eid);
+      ov2.close(); // 选完后关掉这个表情选择面板
+      if(e){
+        queue.push({type:'emoji',src:e.src}); // 加入队列
+        render(); // 刷新批量发送面板里的队列
+      }
+    };
+  });
+};
   ov.querySelector('#bImg').onclick=()=>{
     const inp=document.createElement('input');inp.type='file';inp.accept='image/*';
     inp.onchange=async()=>{const f=inp.files[0];if(!f)return;queue.push({type:'img',src:await readFile(f)});render();};
