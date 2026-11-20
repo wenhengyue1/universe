@@ -672,6 +672,62 @@ body.hide-dock .page:not(.sub){padding-bottom:0}
   .fortune-card .fc-char{font-size:48px}
   .book-cell{font-size:10px}
 }
+/* ========== 页面内消息横幅 ========== */
+#notifBanner {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  z-index: 9999;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 20px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 30px rgba(120,110,160,.25), inset 0 1px 0 rgba(255,255,255,.8);
+  transform: translateY(-150%);
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s;
+  pointer-events: none;
+  touch-action: pan-y;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,.6);
+}
+#notifBanner.show {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+#notifBanner.dragging {
+  transition: none;
+}
+.notif-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255,255,255,.6);
+  flex: 0 0 auto;
+  box-shadow: var(--neo-shadow-sm);
+}
+.notif-content {
+  flex: 1;
+  min-width: 0;
+}
+.notif-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--m-text);
+  margin-bottom: 2px;
+}
+.notif-text {
+  font-size: 12.5px;
+  color: var(--m-text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 </style>
 <link rel="manifest" href="manifest.json">
 <script>
@@ -827,6 +883,14 @@ body.hide-dock .page:not(.sub){padding-bottom:0}
 
   <div id="dock"></div>
 
+</div>
+
+<div id="notifBanner" class="notif-banner">
+  <img class="notif-avatar" id="notifAvatar" src="" alt="">
+  <div class="notif-content">
+    <div class="notif-name" id="notifName">Ta</div>
+    <div class="notif-text" id="notifText">发来了一条消息</div>
+  </div>
 </div>
 
 <script>
@@ -1040,6 +1104,93 @@ function deepDef(obj,def){
 }
 
 let S={};
+/* ========== 消息横幅控制 ========== */
+let bannerCount = 0;
+let bannerTimer = null;
+
+function showBanner(m) {
+  const banner = $('#notifBanner');
+  if(!banner) return;
+  
+  const ui = S.chatCfg.ui;
+  $('#notifAvatar').src = ui.avatarTa || AV_PH;
+  $('#notifName').textContent = ui.nameTa || 'Ta';
+  
+  // 折叠效果：记录连击数
+  bannerCount++;
+  
+  if (bannerCount > 1) {
+    $('#notifText').textContent = `发来了 ${bannerCount} 条新消息`;
+  } else {
+    let content = m.type === 'text' ? m.text : (m.type === 'img' ? '[图片]' : '[表情]');
+    $('#notifText').textContent = content;
+  }
+  
+  banner.classList.add('show');
+  
+  // 重置自动消失计时器（5秒）
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => {
+    hideBanner();
+  }, 5000);
+}
+
+function hideBanner() {
+  const banner = $('#notifBanner');
+  if(!banner) return;
+  banner.classList.remove('show');
+  banner.style.transform = ''; // 清除拖动残留
+  bannerCount = 0;
+}
+
+// 绑定滑动与点击事件
+function bindBannerEvents() {
+  const banner = $('#notifBanner');
+  if(!banner) return;
+  
+  let startX = 0;
+  let currentX = 0;
+  let isDragging = false;
+  
+  banner.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    currentX = startX;
+    isDragging = true;
+    banner.classList.add('dragging');
+  }, { passive: true });
+  
+  banner.addEventListener('touchmove', e => {
+    if(!isDragging) return;
+    currentX = e.touches[0].clientX;
+    const dx = currentX - startX;
+    banner.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  
+  banner.addEventListener('touchend', e => {
+    if(!isDragging) return;
+    isDragging = false;
+    banner.classList.remove('dragging');
+    
+    const dx = currentX - startX;
+    if (Math.abs(dx) > 50) {
+      // 滑动超过 50px 则划走
+      banner.style.transform = `translateX(${dx > 0 ? '100%' : '-100%'})`;
+      banner.classList.remove('show');
+      setTimeout(() => { banner.style.transform = ''; bannerCount = 0; }, 300);
+    } else {
+      // 没滑够，回弹
+      banner.style.transform = '';
+    }
+  });
+  
+  // 点击跳转
+  banner.addEventListener('click', () => {
+    if (Math.abs(currentX - startX) < 10) { // 区分点击和滑动
+      go('chat');
+      hideBanner();
+    }
+  });
+}
 const _saveT={};
 function save(key){clearTimeout(_saveT[key]);
   _saveT[key]=setTimeout(()=>{idbSet(key,S[key]).catch(()=>{});},180);}
@@ -1168,6 +1319,7 @@ function go(id,fromBack){
   S.unread = S.unread || {chat:0,letter:0};
   S.unread.chat = 0; save('unread');
   chatRenderLimit = 15; // <--- 新增这行：每次进聊天，先只显示最近 15 条
+  hideBanner();
   renderChat(); applyTheme();
 }
   if(id==='seek') renderSeek();
@@ -1808,11 +1960,14 @@ function pushMsg(m){
   if(m.side==='ta'){
     playSound('reply');
     if(!$('#p-chat').classList.contains('active')){
-      S.unread = S.unread || {chat:0,letter:0};
-      S.unread.chat = (S.unread.chat||0)+1;
-      save('unread');
-      renderDesktop();
-    }
+  S.unread = S.unread || {chat:0,letter:0};
+  S.unread.chat = (S.unread.chat||0)+1;
+  save('unread');
+  renderDesktop();
+  
+  // === 触发页面内横幅 ===
+  showBanner(m);
+}
     if(document.hidden){
       const name = S.chatCfg.ui.nameTa || 'Ta';
       const body = m.type==='text' ? m.text : (m.type==='img'?'[图片]':'[表情]');
@@ -4360,6 +4515,7 @@ async function boot(){
   updateBattery();
   setupDesktopInteractions();
   bindMiniDrag();
+  bindBannerEvents();
   tick();
   setInterval(tick,1000);
   
