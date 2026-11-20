@@ -2871,6 +2871,7 @@ function renderLetter(){
   const L=S.letters;
   const name=S.chatCfg.ui.nameTa||'Ta';
   const list = letterTab==='in' ? L.in : L.out;
+  
   $('#letterBody').innerHTML=`
     <div class="letter-tabs">
       <div class="letter-tab-card ${letterTab==='in'?'on':''}" data-ltype="in">
@@ -2885,7 +2886,9 @@ function renderLetter(){
         <div class="list-item" data-lid="${x.id}">
           <div class="li-main">${esc(x.preview||'（空白信件）')}
             <div class="li-sub">${letterTab==='in'?`寄信人：${esc(name)}`:'寄信人：我'} · ${fmtDate(x.ts)}</div>
-          </div><span>›</span>
+          </div>
+          ${letterTab==='out' && x.hasNewReply ? '<span class="app-badge" style="position:relative;top:0;right:8px;">新</span>' : ''}
+          <span>›</span>
         </div>`).join('') : '<div class="empty">暂无信件</div>'}
     </div>
     <button class="btn primary block" id="writeLetter">写一封信</button>`;
@@ -2897,6 +2900,27 @@ function openLetterView(type,id){
   const arr = type==='in'?S.letters.in:S.letters.out;
   const l = arr.find(x=>x.id===id);if(!l) return;
   const name=S.chatCfg.ui.nameTa||'Ta';
+  
+  let replyHtml = '';
+  if (type === 'out' && l.reply) {
+    replyHtml = `
+      <div style="margin-top:16px; border-top:1px dashed rgba(184,165,216,.4); padding-top:12px;">
+        <div class="small" style="margin-bottom:8px; color:var(--m-accent);">
+          ${esc(name)} 的回信 · ${fmtDate(l.reply.ts)}
+        </div>
+        <div style="white-space:pre-wrap;line-height:1.75; background:rgba(184,165,216,.08); padding:10px; border-radius:10px;">
+          ${esc(l.reply.content||'')}
+        </div>
+      </div>
+    `;
+    // 点开后，清除红点
+    if (l.hasNewReply) {
+      l.hasNewReply = false;
+      save('letters');
+      if($('#p-letter').classList.contains('active')) renderLetter();
+    }
+  }
+
   const ov=showModal(`<div class="m-head"><h3>${type==='in'?'收到的信':'寄出的信'}</h3>
     <button data-close>✕</button></div>
     <div class="m-body" style="padding-bottom:6px">
@@ -2905,6 +2929,7 @@ function openLetterView(type,id){
       <div style="white-space:pre-wrap;line-height:1.75">${esc(l.content||'')}</div>
       ${l.images&&l.images.length?`<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
         ${l.images.map(i=>`<img src="${i}" style="max-width:120px;border-radius:10px">`).join('')}</div>`:''}
+      ${replyHtml}
     </div>
     <div class="m-foot" style="flex-wrap:wrap">
       ${type==='in'?'<button class="btn primary" id="lReply">回信</button>':''}
@@ -2935,27 +2960,49 @@ function writeLetter(quote){
     <div class="m-foot"><button class="btn" data-close>取消</button>
       <button class="btn primary" id="ltSend">寄出</button></div>`);
   const imgs=[];const ta=ov.querySelector('#ltText');
+  
+  // === 修改1：表情包自选 ===
   ov.querySelector('#ltEmoji').onclick=()=>{
-    const e=emojiPick('mine');if(!e){toast('暂无我的表情包');return;}
-    ta.value += ' [表情] ';imgs.push(e.src);renderImgs();
+    const list = emojiList('mine');
+    if(!list.length){toast('还没有我的表情包，去「字卡库 - 表情包」导入吧');return;}
+    const ov2 = showModal(`<div class="m-head"><h3>选择表情包</h3><button data-close>✕</button></div>
+      <div class="m-body"><div class="emoji-grid" id="emojiPickLetter"></div></div>`);
+    ov2.querySelector('#emojiPickLetter').innerHTML=list.map(e=>`<img src="${e.src}" data-eid="${e.id}">`).join('');
+    ov2.querySelectorAll('[data-eid]').forEach(img=>{
+      img.onclick=()=>{
+        const e=list.find(x=>x.id===img.dataset.eid);
+        ov2.close();
+        if(e){ ta.value += ' [表情] '; imgs.push(e.src); renderImgs(); }
+      };
+    });
   };
+
   ov.querySelector('#ltImg').onclick=()=>{
     const inp=document.createElement('input');inp.type='file';inp.accept='image/*';
     inp.onchange=async()=>{const f=inp.files[0];if(!f)return;imgs.push(await readFile(f));renderImgs();};
     inp.click();
   };
   function renderImgs(){ov.querySelector('#ltImgs').innerHTML=imgs.map(i=>`<img src="${i}" style="max-width:70px;border-radius:8px">`).join('');}
+  
   ov.querySelector('#ltSend').onclick=()=>{
     const content=ta.value.trim();
     if(!content&&!imgs.length){toast('信件内容不能为空');return;}
     ov.close();
-    S.letters.out.push({id:uid(),ts:now(),content,images:imgs.slice(),
-      preview:content.slice(0,40)||'（图片信）'});
-    save('letters');renderLetter();toast('信件已寄出');
+    
+    // === 修改2：新信件增加 reply 字段，并将回信任务放入 queue ===
+    const newId = uid();
+    S.letters.out.push({
+      id: newId, ts: now(), content, images: imgs.slice(),
+      preview: content.slice(0,40)||'（图片信）',
+      reply: null, hasNewReply: false
+    });
+    save('letters'); renderLetter(); toast('信件已寄出');
+    
     const lc=S.chatCfg.letter;
     if(Math.random()*100 < lc.replyProb){
       const delay=randInt(Math.max(1,lc.minReply),Math.max(2,lc.maxReply))*60000;
-      S.timers.nextLetterReply=now()+delay;save('timers');
+      S.timers.queue.push({t:now()+delay, kind:'letterReply', payload:{ letterId: newId }});
+      save('timers');
     }
   };
 }
@@ -4182,7 +4229,7 @@ function runTask(task){
     case 'readNoReply': doReadNoReply(); break;
     case 'recall': doRecall(task.payload.mid); break;
     case 'letterIn': doLetterIn(); break;
-    case 'letterReply': doLetterReply(); break;
+    case 'letterReply': doLetterReply(task.payload?.letterId); break;
   }
 }
 function doProactiveMsg(){
@@ -4206,13 +4253,20 @@ function doLetterIn(){
     renderDesktop();
   }
 }
-function doLetterReply(){
-  const content=taLetterContent();
-  S.letters.in.push({id:uid(),ts:now(),content,images:[],preview:content.slice(0,40)});save('letters');
-  const name=S.chatCfg.ui.nameTa||'Ta';
+function doLetterReply(letterId){
+  const letter = S.letters.out.find(x=>x.id===letterId);
+  if(!letter) return;
+  
+  const content = taLetterContent();
+  letter.reply = { id: uid(), ts: now(), content };
+  letter.hasNewReply = true;
+  save('letters');
+  
+  const name = S.chatCfg.ui.nameTa||'Ta';
   toast(`${name} 回信了`);
   if($('#p-letter').classList.contains('active')) renderLetter();
-  notify(`${name} 回信了`,content.slice(0,40));
+  notify(`${name} 回信了`, content.slice(0,40));
+  
   if(!$('#p-letter').classList.contains('active')){
     S.unread = S.unread || {chat:0,letter:0};
     S.unread.letter = (S.unread.letter||0)+1;
@@ -4267,9 +4321,6 @@ function tick(){
       S.timers.nextLetter = t + randInt(Math.max(1,lc.minTime),Math.max(2,lc.maxTime))*60000;save('timers');
     }
   }else if(S.timers.nextLetter){S.timers.nextLetter=0;save('timers');}
-  if(S.timers.nextLetterReply && S.timers.nextLetterReply<=t){
-    S.timers.nextLetterReply=0;S.timers.queue.push({t:t,kind:'letterReply'});save('timers');
-  }
   const c=S.chatCfg.call;
   if(c.incomingProb>0){
     if(!S.timers.nextCall){S.timers.nextCall = t + 120000;save('timers');}
