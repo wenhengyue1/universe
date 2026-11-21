@@ -3426,204 +3426,196 @@ function renderCardPanel(){
   bindCardPanel(p);
 }
 let cardFilter='all';
-function cardsPanelHTML(){
-  const q=($('#cardSearch').value||'').trim();
-  const groups=S.cards.groups;
-  let list=S.cards.list;
-  if(q) list=list.filter(c=>c.t.includes(q));
-  if(cardFilter!=='all') list=list.filter(c=>c.g===cardFilter);
-  
-  // 计算全部分类的数量
-  const totalCount = S.cards.list.length;
+let cardSearchQuery = '';
 
-  // 在“全部”和分组名称旁边加上数量 (样式设置为半透明小字)
-  const chips=[`<div class="chip ${cardFilter==='all'?'on':''}" data-gf="all">全部 <span style="font-size:11px;opacity:.75;margin-left:2px">(${totalCount})</span></div>`]
-    .concat(groups.map(g=>{
-      const closed=S.cards.closed.includes(g);
-      // 计算当前分组的数量
-      const groupCount = S.cards.list.filter(c=>c.g===g).length;
-      return `<div class="chip ${cardFilter===g?'on':''}" data-gf="${esc(g)}">
-        ${esc(g)} <span style="font-size:11px;opacity:.75;margin-left:2px">(${groupCount})</span>
-        <span class="chip-x" data-gtoggle="${esc(g)}"
-          style="font-size:10px;opacity:${closed?1:.4}">${closed?'关':'开'}</span></div>`;
-    })).join('');
-    
-  return `
+function cardsPanelHTML(){
+  const q = cardSearchQuery;
+  const groups = S.cards.groups;
+  
+  let html = `
   <div class="card"><h3>管理</h3>
     <div class="btnrow">
       <button class="btn sm" id="cGroup">管理分组</button>
       <button class="btn sm" id="cImport">批量导入</button>
       <button class="btn sm" id="cExport">批量导出</button>
       <button class="btn sm" id="cDedup">去重</button>
-      <button class="btn sm" id="cManage">字卡管理</button>
       <button class="btn sm danger" id="cClearAll">清除全部</button>
     </div>
   </div>
-  <div class="hscroll">${chips}</div>
   <div style="margin-bottom:10px">
     <textarea id="cNew" rows="3" placeholder="输入新字卡内容，每行一张"
       style="width:100%;border:none;outline:none;background:rgba(255,255,255,.55);border-radius:14px;padding:12px;
       font-size:14px;box-shadow:var(--neo-inset);resize:vertical;color:var(--m-text)"></textarea>
-    <button class="btn primary block" id="cAdd">添加到当前分组</button>
+    <button class="btn primary block" id="cAdd">添加字卡</button>
   </div>
-  <div>${list.length?list.slice().reverse().map(c=>
-    `<div class="list-item"><div class="li-main">${esc(c.t)}
-      <div class="li-sub">${esc(c.g)}</div></div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="chip-x" data-cedit="${c.id}" style="font-size:14px;color:var(--m-accent);opacity:0.8">✎</button>
-        <button class="chip-x" data-cdel="${c.id}">✕</button>
-      </div>
-    </div>`).join(''):
-    '<div class="empty">暂无字卡</div>'}</div>`;
-}
-function bindCardPanel(p){
-  const $q=s=>p.querySelector(s);
-  if(cardPanel==='cards'){
-    p.querySelectorAll('[data-gf]').forEach(el=>{
-      el.onclick=e=>{if(e.target.dataset.gtoggle!==undefined){return;}cardFilter=el.dataset.gf;renderCardPanel();};
-    });
-    p.querySelectorAll('[data-gtoggle]').forEach(el=>{
-      el.onclick=e=>{
-        e.stopPropagation();
-        const g=el.dataset.gtoggle;
-        if(S.cards.closed.includes(g)) S.cards.closed=S.cards.closed.filter(x=>x!==g);
-        else S.cards.closed.push(g);
-        save('cards');renderCardPanel();
-      };
-    });
-    p.querySelectorAll('[data-cdel]').forEach(b=>{
-      b.onclick=()=>{S.cards.list=S.cards.list.filter(x=>x.id!==b.dataset.cdel);save('cards');renderCardPanel();};
-    });
-    p.querySelectorAll('[data-cedit]').forEach(b=>{
-  b.onclick=()=>{
-    const id = b.dataset.cedit;
-    const card = S.cards.list.find(x=>x.id===id);
-    if(!card) return;
-    const ov = showModal(`<div class="m-head"><h3>修改字卡</h3><button data-close>✕</button></div>
-      <div class="m-body">
-        <label class="field"><span>字卡内容</span>
-          <textarea id="editCardText" rows="4" style="width:100%;box-sizing:border-box">${esc(card.t)}</textarea></label>
-      </div>
-      <div class="m-foot"><button class="btn" data-close>取消</button>
-        <button class="btn primary" id="editCardSave">保存</button></div>`);
-    ov.querySelector('#editCardSave').onclick = () => {
-      const v = ov.querySelector('#editCardText').value.trim();
-      if(!v){ toast('内容不能为空'); return; }
-      card.t = v;
-      save('cards');
-      renderCardPanel();
-      ov.close();
-      toast('字卡已修改');
-    };
-  };
-});
-    $q('#cAdd').onclick=()=>{
-      const v=$q('#cNew').value;
-      const lines=v.split('\n').map(s=>s.trim()).filter(Boolean);
-      if(!lines.length){toast('请输入内容');return;}
-      const g = cardFilter==='all'?S.cards.groups[0]:cardFilter;
-      lines.forEach(t=>S.cards.list.push({id:uid(),g,t}));
-      save('cards');renderCardPanel();toast(`已添加${lines.length}张`);
-    };
-    $q('#cGroup').onclick=manageGroups;
-    $q('#cImport').onclick=()=>importCards();
-    $q('#cExport').onclick=()=>exportCards();
-    $q('#cDedup').onclick=()=>{
-      const seen=new Set();const before=S.cards.list.length;
-      S.cards.list=S.cards.list.filter(c=>{const k=c.g+'||'+c.t;if(seen.has(k)) return false;seen.add(k);return true;});
-      save('cards');renderCardPanel();toast(`已去除 ${before-S.cards.list.length} 张重复字卡`);
-    };
-    $q('#cManage').onclick=manageCards;
-    $q('#cClearAll').onclick=()=>confirmBox('确定清除全部字卡？此操作不可恢复。',()=>{S.cards.list=[];save('cards');renderCardPanel();},'清除');
-  }
-  if(cardPanel==='seek'){
-  // 绑定折叠/展开
-  p.querySelectorAll('[data-seektoggle]').forEach(h=>{
-    h.onclick = () => {
-      const key = h.dataset.seektoggle;
-      _seekCollapsed[key] = !_seekCollapsed[key];
-      renderCardPanel();
-    };
-  });
-
-  const add=(key)=>{
-    const inp=p.querySelector(`[data-seekin="${key}"]`);
-    const v=inp.value.trim();if(!v)return;
-    S.seek[key].push(v);
-    save('seek');
-    // 添加后不改变 _seekCollapsed 状态，所以它还是折叠的
-    renderCardPanel();
-  };
+  `;
   
-  // 支持回车键快速添加
-  p.querySelectorAll('[data-seekin]').forEach(inp => {
-    inp.addEventListener('keydown', e => {
-      if(e.key === 'Enter') {
-        e.preventDefault();
-        add(inp.dataset.seekin);
-      }
-    });
-  });
-
-  p.querySelectorAll('[data-seekadd]').forEach(b=>{b.onclick=()=>add(b.dataset.seekadd);});
-  
-  // 删除按钮
-  p.querySelectorAll('[data-seekdel]').forEach(b=>{
-    b.onclick=()=>{
-      const [k,i]=b.dataset.seekdel.split(':');
-      S.seek[k].splice(+i,1);
-      save('seek');
-      renderCardPanel();
-    };
-  });
-
-  // 修改按钮
-  p.querySelectorAll('[data-seekedit]').forEach(b=>{
-    b.onclick=()=>{
-      const [k, idxStr] = b.dataset.seekedit.split(':');
-      const i = parseInt(idxStr);
-      const oldVal = S.seek[k][i];
-      
-      const ov = showModal(`<div class="m-head"><h3>修改内容</h3><button data-close>✕</button></div>
-        <div class="m-body">
-          <label class="field"><span>内容</span>
-            <input id="editSeekText" type="text" value="${esc(oldVal)}"></label>
+  if (q) {
+    // 搜索模式：隐藏分组列表，显示全部分组下搜到的字卡
+    const list = S.cards.list.filter(c => c.t.includes(q));
+    html += `<div style="margin-top:10px;">
+      ${list.length ? list.slice().reverse().map(c => `
+        <div class="list-item">
+          <div class="li-main">${esc(c.t)}
+            <div class="li-sub">${esc(c.g)}</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="chip-x" data-cedit="${c.id}" style="font-size:14px;color:var(--m-accent);opacity:0.8">✎</button>
+            <button class="chip-x" data-cdel="${c.id}">✕</button>
+          </div>
         </div>
-        <div class="m-foot"><button class="btn" data-close>取消</button>
-          <button class="btn primary" id="editSeekSave">保存</button></div>`);
-          
-      ov.querySelector('#editSeekSave').onclick = () => {
-        const v = ov.querySelector('#editSeekText').value.trim();
-        if(!v){ toast('内容不能为空'); return; }
-        S.seek[k][i] = v;
-        save('seek');
-        renderCardPanel();
-        ov.close();
-        toast('已修改');
-      };
-    };
-  });
+      `).join('') : '<div class="empty">没有找到相关字卡</div>'}
+    </div>`;
+  } else {
+    // 正常模式：显示分组列表
+    html += `<div style="margin-top:10px;">`;
+    html += groups.map(g => {
+      const closed = S.cards.closed.includes(g);
+      const count = S.cards.list.filter(c => c.g === g).length;
+      return `<div class="list-item" data-group-click="${esc(g)}" style="cursor:pointer;">
+        <div class="li-main">
+          <b style="font-size:15px;">${esc(g)}</b>
+          <div class="li-sub">${count} 张字卡</div>
+        </div>
+        <div class="switch ${closed ? '' : 'on'}" data-gtoggle="${esc(g)}" onclick="event.stopPropagation()"></div>
+        <span style="color:var(--m-text-soft);margin-left:8px;font-size:18px;">›</span>
+      </div>`;
+    }).join('');
+    html += `</div>`;
+  }
+  return html;
 }
+
+function bindCardPanel(p){
+  const $q = s => p.querySelector(s);
+  if(cardPanel === 'cards'){
+    // 1. 添加字卡（弹窗选分组）
+    $q('#cAdd').onclick = () => {
+      const v = $q('#cNew').value;
+      const lines = v.split('\n').map(s => s.trim()).filter(Boolean);
+      if(!lines.length){ toast('请输入内容'); return; }
+      
+      const groups = S.cards.groups;
+      const ov = showModal(`
+        <div class="m-head"><h3>添加到哪个分组？</h3><button data-close>✕</button></div>
+        <div class="m-body">
+          <div class="hscroll" style="flex-wrap:wrap;gap:8px;">
+            ${groups.map(g => `<div class="chip" data-target-g="${esc(g)}" style="font-size:14px;padding:10px 16px;">${esc(g)}</div>`).join('')}
+          </div>
+        </div>
+      `);
+      ov.querySelectorAll('[data-target-g]').forEach(c => {
+        c.onclick = () => {
+          const targetGroup = c.dataset.targetG;
+          lines.forEach(t => S.cards.list.push({id:uid(), g:targetGroup, t}));
+          save('cards');
+          renderCardPanel();
+          ov.close();
+          toast(`已添加${lines.length}张到「${targetGroup}」`);
+        };
+      });
+    };
+    
+    // 2. 搜索结果中的编辑和删除
+    p.querySelectorAll('[data-cedit]').forEach(b => {
+      b.onclick = () => {
+        const card = S.cards.list.find(x => x.id === b.dataset.cedit);
+        if(!card) return;
+        const ov = showModal(`<div class="m-head"><h3>修改字卡</h3><button data-close>✕</button></div>
+          <div class="m-body">
+            <label class="field"><span>字卡内容</span>
+              <textarea id="editCardText" rows="4" style="width:100%;box-sizing:border-box">${esc(card.t)}</textarea></label>
+          </div>
+          <div class="m-foot"><button class="btn" data-close>取消</button>
+            <button class="btn primary" id="editCardSave">保存</button></div>`);
+        ov.querySelector('#editCardSave').onclick = () => {
+          const v = ov.querySelector('#editCardText').value.trim();
+          if(!v){ toast('内容不能为空'); return; }
+          card.t = v;
+          save('cards'); renderCardPanel(); ov.close(); toast('字卡已修改');
+        };
+      };
+    });
+    p.querySelectorAll('[data-cdel]').forEach(b => {
+      b.onclick = () => { S.cards.list = S.cards.list.filter(x => x.id !== b.dataset.cdel); save('cards'); renderCardPanel(); };
+    });
+
+    // 3. 分组开关控制
+    p.querySelectorAll('[data-gtoggle]').forEach(el => {
+      el.onclick = e => {
+        e.stopPropagation();
+        const g = el.dataset.gtoggle;
+        if(S.cards.closed.includes(g)) S.cards.closed = S.cards.closed.filter(x => x !== g);
+        else S.cards.closed.push(g);
+        save('cards'); renderCardPanel();
+      };
+    });
+    
+    // 4. 点击分组跳转专属字卡页面
+    p.querySelectorAll('[data-group-click]').forEach(el => {
+      el.onclick = () => { openGroupCards(el.dataset.groupClick); };
+    });
+
+    // 5. 顶部按钮
+    $q('#cGroup').onclick = manageGroups;
+    $q('#cImport').onclick = () => importCards();
+    $q('#cExport').onclick = () => exportCards();
+    $q('#cDedup').onclick = () => {
+      const seen = new Set(); const before = S.cards.list.length;
+      S.cards.list = S.cards.list.filter(c => { const k = c.g + '||' + c.t; if(seen.has(k)) return false; seen.add(k); return true; });
+      save('cards'); renderCardPanel(); toast(`已去除 ${before - S.cards.list.length} 张重复字卡`);
+    };
+    $q('#cClearAll').onclick = () => confirmBox('确定清除全部字卡？', () => {
+      S.cards.list = []; save('cards'); renderCardPanel();
+    }, '清除');
+  }
+  
+  // ======= 下面其他面板的逻辑保持不变 =======
+  if(cardPanel==='seek'){
+    p.querySelectorAll('[data-seektoggle]').forEach(h=>{
+      h.onclick = () => { const key = h.dataset.seektoggle; _seekCollapsed[key] = !_seekCollapsed[key]; renderCardPanel(); };
+    });
+    const add=(key)=>{
+      const inp=p.querySelector(`[data-seekin="${key}"]`); const v=inp.value.trim(); if(!v)return;
+      S.seek[key].push(v); save('seek'); renderCardPanel();
+    };
+    p.querySelectorAll('[data-seekin]').forEach(inp => {
+      inp.addEventListener('keydown', e => { if(e.key === 'Enter') { e.preventDefault(); add(inp.dataset.seekin); } });
+    });
+    p.querySelectorAll('[data-seekadd]').forEach(b=>{b.onclick=()=>add(b.dataset.seekadd);});
+    p.querySelectorAll('[data-seekdel]').forEach(b=>{
+      b.onclick=()=>{ const [k,i]=b.dataset.seekdel.split(':'); S.seek[k].splice(+i,1); save('seek'); renderCardPanel(); };
+    });
+    p.querySelectorAll('[data-seekedit]').forEach(b=>{
+      b.onclick=()=>{
+        const [k, idxStr] = b.dataset.seekedit.split(':'); const i = parseInt(idxStr);
+        const oldVal = S.seek[k][i];
+        const ov = showModal(`<div class="m-head"><h3>修改内容</h3><button data-close>✕</button></div>
+          <div class="m-body"><label class="field"><span>内容</span><input id="editSeekText" type="text" value="${esc(oldVal)}"></label></div>
+          <div class="m-foot"><button class="btn" data-close>取消</button><button class="btn primary" id="editSeekSave">保存</button></div>`);
+        ov.querySelector('#editSeekSave').onclick = () => {
+          const v = ov.querySelector('#editSeekText').value.trim(); if(!v){ toast('内容不能为空'); return; }
+          S.seek[k][i] = v; save('seek'); renderCardPanel(); ov.close(); toast('已修改');
+        };
+      };
+    });
+  }
   if(cardPanel==='emoji'){
     p.querySelectorAll('[data-etab]').forEach(t=>{t.onclick=()=>{ emojiPanelTab = t.dataset.etab; renderCardPanel(); };});
     const tab = emojiPanelTab || 'mine';
     $q('#eImport').onclick=()=>importEmoji(tab);
     $q('#eExport').onclick=()=>{
       const list = emojiList(tab);
-      download(`你即宇宙_${tab==='mine'?'我的':'对方的'}表情包_${Date.now()}.json`,
-        JSON.stringify({type:'emoji',which:tab,list}));
+      download(`你即宇宙_${tab==='mine'?'我的':'对方的'}表情包_${Date.now()}.json`, JSON.stringify({type:'emoji',which:tab,list}));
       toast('已导出');
     };
     $q('#eDedup').onclick=()=>{
-      const arr = S.emojis[tab] || [];
-      const seen = new Set(); const before = arr.length;
+      const arr = S.emojis[tab] || []; const seen = new Set(); const before = arr.length;
       S.emojis[tab] = arr.filter(e=>{ if(seen.has(e.src)) return false; seen.add(e.src); return true; });
       save('emojis'); renderCardPanel();toast(`已去除 ${before-S.emojis[tab].length} 张重复表情`);
     };
     $q('#eManage').onclick=()=>manageEmoji(tab);
-    $q('#eClear').onclick=()=>confirmBox(`确定清除${tab==='mine'?'我的':'对方的'}全部表情包？`,()=>{
-      S.emojis[tab]=[]; save('emojis'); renderCardPanel(); toast('已清空');
-    },'清除');
+    $q('#eClear').onclick=()=>confirmBox(`确定清除全部表情包？`,()=>{ S.emojis[tab]=[]; save('emojis'); renderCardPanel(); toast('已清空'); },'清除');
     p.querySelectorAll('[data-edel]').forEach(b=>{
       b.onclick=()=>{S.emojis[tab] = (S.emojis[tab]||[]).filter(x=>x.id!==b.dataset.edel);save('emojis');renderCardPanel();};
     });
@@ -3640,6 +3632,145 @@ function bindCardPanel(p){
     $q('#impEmojiMine').onclick=()=>importEmoji('mine');
     $q('#impEmojiTa').onclick=()=>importEmoji('ta');
   }
+}
+function openGroupCards(groupName) {
+  const sub = openSub(groupName, '<div id="groupCardsList"></div>', {
+    onMount: (el) => {
+      const topbar = el.querySelector('.topbar');
+      const manageBtn = document.createElement('button');
+      manageBtn.className = 'icon-btn';
+      manageBtn.innerHTML = '<span style="font-size:12px;font-weight:600;color:var(--m-accent);">管理</span>';
+      manageBtn.onclick = () => manageGroupCards(groupName);
+      topbar.lastElementChild.replaceWith(manageBtn);
+      renderGroupCards(el, groupName);
+    }
+  });
+}
+
+function renderGroupCards(el, groupName) {
+  const container = el.querySelector('#groupCardsList');
+  const list = S.cards.list.filter(c => c.g === groupName);
+  
+  if (!list.length) {
+    container.innerHTML = '<div class="empty">暂无字卡</div>';
+    return;
+  }
+  
+  container.innerHTML = list.slice().reverse().map(c => `
+    <div class="list-item">
+      <div class="li-main">${esc(c.t)}</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="chip-x" data-gcedit="${c.id}" style="font-size:14px;color:var(--m-accent);opacity:0.8">✎</button>
+        <button class="chip-x" data-gcdel="${c.id}">✕</button>
+      </div>
+    </div>
+  `).join('');
+  
+  container.querySelectorAll('[data-gcedit]').forEach(b => {
+    b.onclick = () => {
+      const card = S.cards.list.find(x => x.id === b.dataset.gcedit);
+      if(!card) return;
+      const ov = showModal(`<div class="m-head"><h3>修改字卡</h3><button data-close>✕</button></div>
+        <div class="m-body">
+          <label class="field"><span>字卡内容</span>
+            <textarea id="editGroupCardText" rows="4" style="width:100%;box-sizing:border-box">${esc(card.t)}</textarea></label>
+        </div>
+        <div class="m-foot"><button class="btn" data-close>取消</button>
+          <button class="btn primary" id="editGroupCardSave">保存</button></div>`);
+      ov.querySelector('#editGroupCardSave').onclick = () => {
+        const v = ov.querySelector('#editGroupCardText').value.trim();
+        if(!v){ toast('内容不能为空'); return; }
+        card.t = v;
+        save('cards');
+        renderGroupCards(el, groupName);
+        ov.close();
+        toast('字卡已修改');
+      };
+    };
+  });
+
+  container.querySelectorAll('[data-gcdel]').forEach(b => {
+    b.onclick = () => {
+      S.cards.list = S.cards.list.filter(x => x.id !== b.dataset.gcdel);
+      save('cards');
+      renderGroupCards(el, groupName);
+    };
+  });
+}
+
+function manageGroupCards(groupName) {
+  const ov = showModal(`<div class="m-head"><h3>管理「${esc(groupName)}」</h3><button data-close>✕</button></div>
+    <div class="m-body" id="mgcBody"></div>
+    <div class="m-foot" style="flex-wrap:wrap;gap:8px">
+      <span class="small" id="mgcCount">已选 0 张</span>
+      <button class="btn sm" id="mgcAll">全选</button>
+      <button class="btn sm" id="mgcMove">移动</button>
+      <button class="btn sm danger" id="mgcDel">删除</button>
+      <button class="btn sm" data-close>退出</button>
+    </div>`);
+  const body = ov.querySelector('#mgcBody');
+  const sel = new Set();
+  
+  const render = () => {
+    const list = S.cards.list.filter(c => c.g === groupName);
+    body.innerHTML = list.length ? list.map(c => `
+      <div class="list-item">
+        <input type="checkbox" data-sel="${c.id}" ${sel.has(c.id) ? 'checked' : ''} style="width:18px;height:18px">
+        <div class="li-main">${esc(c.t)}</div>
+      </div>`).join('') : '<div class="empty">该分组暂无字卡</div>';
+    body.querySelectorAll('[data-sel]').forEach(cb => {
+      cb.onchange = () => {
+        if(cb.checked) sel.add(cb.dataset.sel);
+        else sel.delete(cb.dataset.sel);
+        ov.querySelector('#mgcCount').textContent = `已选 ${sel.size} 张`;
+      };
+    });
+  };
+  render();
+  
+  ov.querySelector('#mgcAll').onclick = () => {
+    const list = S.cards.list.filter(c => c.g === groupName);
+    if(sel.size === list.length) sel.clear();
+    else list.forEach(c => sel.add(c.id));
+    render();
+    ov.querySelector('#mgcCount').textContent = `已选 ${sel.size} 张`;
+  };
+  
+  ov.querySelector('#mgcDel').onclick = () => {
+    if(!sel.size){ toast('请先选择'); return; }
+    S.cards.list = S.cards.list.filter(c => !sel.has(c.id));
+    sel.clear(); save('cards');
+    render(); renderCardPanel();
+    ov.close();
+    toast('已删除所选字卡');
+    history.back(); // 如果分组空了，可能退出去比较好
+  };
+  
+  ov.querySelector('#mgcMove').onclick = () => {
+    if(!sel.size){ toast('请先选择'); return; }
+    const otherGroups = S.cards.groups.filter(g => g !== groupName);
+    if (!otherGroups.length) { toast('没有其他分组'); return; }
+    
+    const ov2 = showModal(`<div class="m-head"><h3>移动到分组</h3><button data-close>✕</button></div>
+      <div class="m-body">
+        <div class="hscroll" style="flex-wrap:wrap;">
+          ${otherGroups.map(g => `<div class="chip" data-move-to="${esc(g)}">${esc(g)}</div>`).join('')}
+        </div>
+      </div>`);
+    ov2.querySelectorAll('[data-move-to]').forEach(chip => {
+      chip.onclick = () => {
+        const target = chip.dataset.moveTo;
+        S.cards.list.forEach(c => { if(sel.has(c.id)) c.g = target; });
+        save('cards');
+        ov2.close();
+        sel.clear();
+        render();
+        ov.querySelector('#mgcCount').textContent = '已选 0 张';
+        renderCardPanel();
+        toast(`已移动到「${target}」`);
+      };
+    });
+  };
 }
 function manageGroups(){
   const ov=showModal(`<div class="m-head"><h3>管理分组</h3><button data-close>✕</button></div>
@@ -3741,21 +3872,44 @@ function importCards(){
   inp.click();
 }
 function exportCards(){
-  const groups=S.cards.groups;
-  const ov=showModal(`<div class="m-head"><h3>导出字卡</h3><button data-close>✕</button></div>
+  const groups = S.cards.groups;
+  const ov = showModal(`<div class="m-head"><h3>导出字卡</h3><button data-close>✕</button></div>
     <div class="m-body">
-      ${groups.map(g=>`<div class="list-item"><div class="li-main">${esc(g)}</div>
-        <button class="btn sm" data-exp="${esc(g)}">导出</button></div>`).join('')}
-      <button class="btn primary block" id="expGroupsAll">导出全部分组</button>
+      <div style="margin-bottom:12px;font-weight:600;font-size:13px;">单独导出</div>
+      ${groups.map(g => `<div class="list-item"><div class="li-main">${esc(g)}</div>
+        <button class="btn sm" data-exp-single="${esc(g)}">导出</button></div>`).join('')}
+        
+      <div style="margin:16px 0 12px;font-weight:600;font-size:13px;">多选导出</div>
+      <div style="max-height:150px;overflow-y:auto;margin-bottom:10px;">
+        ${groups.map(g => `
+          <label class="row" style="cursor:pointer;">
+            <span>${esc(g)}</span>
+            <input type="checkbox" class="exp-group-cb" value="${esc(g)}" style="width:18px;height:18px;">
+          </label>
+        `).join('')}
+      </div>
+      <button class="btn primary block" id="expGroupsSelected">导出选中分组</button>
+      
+      <button class="btn block" id="expGroupsAll" style="margin-top:16px;">导出全部分组</button>
     </div>`);
-  const doExp=(g)=>{
-    const list = g?S.cards.list.filter(c=>c.g===g):S.cards.list;
-    download(`你即宇宙_字卡_${g||'全部'}_${Date.now()}.json`,
+    
+  const doExp = (gList) => {
+    const list = gList ? S.cards.list.filter(c => gList.includes(c.g)) : S.cards.list;
+    const name = gList ? gList.join(',') : '全部';
+    download(`你即宇宙_字卡_${name}_${Date.now()}.json`,
       JSON.stringify({type:'cards',list:list.map(c=>({g:c.g,t:c.t}))},null,1));
     toast('已导出');
   };
-  ov.querySelectorAll('[data-exp]').forEach(b=>b.onclick=()=>doExp(b.dataset.exp));
-  ov.querySelector('#expGroupsAll').onclick=()=>doExp(null);
+  
+  ov.querySelectorAll('[data-exp-single]').forEach(b => b.onclick = () => doExp([b.dataset.expSingle]));
+  ov.querySelector('#expGroupsAll').onclick = () => doExp(null);
+  
+  ov.querySelector('#expGroupsSelected').onclick = () => {
+    const cbs = ov.querySelectorAll('.exp-group-cb:checked');
+    const selected = [...cbs].map(cb => cb.value);
+    if (!selected.length) { toast('请先勾选分组'); return; }
+    doExp(selected);
+  };
 }
 function manageEmoji(which){
   which = which || 'mine';
@@ -3886,11 +4040,13 @@ function importPanelHTML(){
     <button class="btn block" id="impEmojiTa">导入到对方的表情包</button>
     <div class="small" style="margin-top:10px">导入全部数据将覆盖当前全部内容，请谨慎操作。</div></div>`;
 }
-$('#cardSearch').addEventListener('input',()=>{
-  if(cardPanel==='cards') renderCardPanel();
-  else{
-    const q=$('#cardSearch').value.trim();if(!q) return;
-    cardPanel='cards';$('#cardsPanel').innerHTML=cardsPanelHTML();
+$('#cardSearch').addEventListener('input', () => {
+  cardSearchQuery = $('#cardSearch').value.trim();
+  if (cardPanel === 'cards') {
+    renderCardPanel();
+  } else {
+    cardPanel = 'cards';
+    $('#cardsPanel').innerHTML = cardsPanelHTML();
     bindCardPanel($('#cardsPanel'));
   }
 });
